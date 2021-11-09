@@ -48,7 +48,8 @@ interface SimulatedOplogIface extends EventEmitter {
 
 export class SimulatedAutobee {
   length = 0
-  public writers: SimulatedOplogIface[] = []
+  key = crypto.randomBytes(32)
+  writers: SimulatedOplogIface[] = []
   private clock: Clock = new Map()
   private entries: Map<string, any> = new Map()
 
@@ -213,7 +214,7 @@ export class SimulatedAutobeeSub {
 }
 
 export class SimulatedOplog extends EventEmitter implements SimulatedOplogIface {
-  key = crypto.randomBytes(8)
+  key = crypto.randomBytes(32)
   writable = true
   public ops: SimulatedOp[] = []
   constructor () {

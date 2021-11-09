@@ -2,7 +2,9 @@
 
 I created this to work on some applications while Autobee finishes getting written. It probably won't be useful to most people.
 
-Not published to NPM; just use the git repo in your package.json if you need this.
+```
+npm i pauls-simulated-autobee
+```
 
 ```js
 import { SimulatedAutobee, SimulatedOplog, SimulatedRemoteOplog } from 'pauls-simulated-autobee'
