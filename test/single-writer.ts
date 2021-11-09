@@ -1,9 +1,10 @@
 import ava from 'ava'
 import concat from 'concat-stream'
-import { SimulatedAutobee } from '../src/index.js'
+import { SimulatedAutobee, SimulatedOplog } from '../src/index.js'
 
-ava('get, createReadStream, put, del', async t => {
+ava('single writer: get, createReadStream, put, del', async t => {
   const db = new SimulatedAutobee()
+  db.addWriter(new SimulatedOplog())
 
   for (let i = 0; i < 10; i++) {
     await db.put(`key${i}`, {test: i})

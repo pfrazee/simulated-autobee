@@ -1,5 +1,5 @@
 {
-  "name": "simulated-autobee",
+  "name": "pauls-simulated-autobee",
   "version": "1.0.0",
   "description": "An in-memory simulated autobee for testing",
   "main": "dist/index.js",

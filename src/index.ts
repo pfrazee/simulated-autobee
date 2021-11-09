@@ -1,4 +1,6 @@
 import { Readable } from 'stream'
+import EventEmitter from 'events'
+import * as crypto from 'crypto'
 
 interface GetOpts {
   prefix?: string
@@ -15,18 +17,95 @@ interface ReadStreamOpts {
 
 interface WriteOpts {
   prefix?: string
+  writer?: SimulatedOplogIface
+}
+
+type Clock = Map<string, number>
+
+interface SimulatedOp {
+  seq: number
+  clock: Clock
+  op: 'put' | 'del'
+  key: string
+  value?: any
 }
 
 interface SimulatedEntry {
   seq: number
   key: string
   value: any
+  clock: Clock
   conflicts: SimulatedEntry[]
 }
 
+interface SimulatedOplogIface extends EventEmitter {
+  key: Buffer
+  keyStr: string
+  length: number
+  writable: boolean
+  get (seq: number): Promise<SimulatedOp|undefined>
+}
+
 export class SimulatedAutobee {
-  private clock = 0
+  length = 0
+  public writers: SimulatedOplogIface[] = []
+  private clock: Clock = new Map()
   private entries: Map<string, any> = new Map()
+
+  get _genWritersClock () {
+    const clock: Clock = new Map()
+    for (const writer of this.writers) {
+      clock.set(writer.key.toString('hex'), writer.length)
+    }
+    return clock
+  }
+
+  async _updateIndex () {
+    const clock = new Map(this.clock)
+    const dstClock = this._genWritersClock
+    for (const writer of this.writers) {
+      const writerKeyStr = writer.key.toString('hex')
+      const oldSeq = clock.get(writerKeyStr) || 0
+      const newSeq = dstClock.get(writerKeyStr) || 0
+      for (let i = oldSeq; i < newSeq; i++) {
+        const op = await writer.get(i)
+        if (op) {
+          if (op.op === 'put') {
+            let conflicts = []
+            const current = this.entries.get(op.key)
+            if (current) {
+              conflicts.push(current)
+              if (current.conflicts.length) {
+                conflicts = conflicts.concat(current.conflicts)
+              }
+            }
+            conflicts = conflicts.filter(c => !leftDominatesRight(op.clock, c.clock))
+
+            this.entries.set(op.key, {
+              seq: this.length,
+              key: op.key,
+              value: op.value,
+              clock: op.clock,
+              conflicts
+            })
+          } else if (op.op === 'del') {
+            this.entries.delete(op.key)
+          }
+          this.length++
+        }
+      }
+    }
+    this.clock = dstClock
+  }
+
+  get _defaultWriter () {
+    return this.writers.find(w => w.writable)
+  }
+
+  addWriter (writer: SimulatedOplogIface) {
+    this.writers.push(writer)
+    writer.on('append', this._updateIndex.bind(this))
+  }
 
   get (key: string, opts?: GetOpts): Promise<SimulatedEntry|undefined> {
     if (opts?.prefix) {
@@ -69,26 +148,33 @@ export class SimulatedAutobee {
     return s
   }
 
-  put (key: string, value: any, opts?: WriteOpts): Promise<void> {
+  async put (key: string, value: any, opts?: WriteOpts): Promise<void> {
     if (opts?.prefix) {
       key = `${opts.prefix}/${key}`
     }
-    this.entries.set(key, {
-      seq: this.clock,
-      key,
-      value,
-      conflicts: []
-    })
-    this.clock++
+    const writer = opts?.writer || this._defaultWriter
+    if (writer) {
+      const clock = new Map(this.clock)
+      clock.set(writer.keyStr, (clock.get(writer.keyStr) || 0) + 1)
+      await (writer as SimulatedOplog).put(key, value, clock)
+    } else {
+      throw new Error('No writable oplog available')
+    }
     return Promise.resolve(undefined)
   }
 
-  del (key: string, opts?: WriteOpts) {
+  async del (key: string, opts?: WriteOpts) {
     if (opts?.prefix) {
       key = `${opts.prefix}/${key}`
     }
-    this.entries.delete(key)
-    this.clock++
+    const writer = opts?.writer || this._defaultWriter
+    if (writer) {
+      const clock = new Map(this.clock)
+      clock.set(writer.keyStr, (clock.get(writer.keyStr) || 0) + 1)
+      await (writer as SimulatedOplog).del(key, clock)
+    } else {
+      throw new Error('No writable oplog available')
+    }
     return Promise.resolve(undefined)
   }
 
@@ -124,4 +210,110 @@ export class SimulatedAutobeeSub {
     opts.prefix = this.prefix
     return this.db.del(key, opts)
   }
+}
+
+export class SimulatedOplog extends EventEmitter implements SimulatedOplogIface {
+  key = crypto.randomBytes(8)
+  writable = true
+  public ops: SimulatedOp[] = []
+  constructor () {
+    super()
+  }
+
+  get keyStr () {
+    return this.key.toString('hex')
+  }
+
+  get length () {
+    return this.ops.length
+  }
+
+  get (seq: number): Promise<SimulatedOp|undefined> {
+    return Promise.resolve(this.ops[seq])
+  }
+
+  put (key: string, value: any, clock: Clock): Promise<void> {
+    this.ops.push({
+      seq: this.ops.length,
+      clock,
+      op: 'put',
+      key,
+      value
+    })
+    this.emit('append')
+    return Promise.resolve(undefined)
+  }
+
+  del (key: string, clock: Clock): Promise<void> {
+    this.ops.push({
+      seq: this.ops.length,
+      clock,
+      op: 'del',
+      key
+    })
+    this.emit('append')
+    return Promise.resolve(undefined)
+  }
+}
+
+export class SimulatedRemoteOplog extends EventEmitter implements SimulatedOplogIface {
+  writable = false
+  public isConnected = false
+  private local: SimulatedOplog
+  constructor (private remote: SimulatedOplog) {
+    super()
+    this.local = captureOplog(remote)
+    this.remote.on('append', () => {
+      if (this.isConnected) this.emit('append')
+    })
+  }
+
+  get key () {
+    return this.local.key
+  }
+
+  get keyStr () {
+    return this.key.toString('hex')
+  }
+
+  connect () {
+    this.isConnected = true
+    if (this.local.length < this.remote.length) {
+      this.emit('append')
+    }
+  }
+
+  disconnect () {
+    this.isConnected = false
+    this.local = captureOplog(this.remote)
+  }
+
+  get oplog () {
+    return this.isConnected ? this.remote : this.local
+  }
+
+  get length () {
+    return this.oplog.length
+  }
+
+  get (seq: number): Promise<SimulatedOp|undefined> {
+    return this.oplog.get(seq)
+  }
+}
+
+function captureOplog (oplog: SimulatedOplog) {
+  const capture = new SimulatedOplog()
+  capture.key = oplog.key
+  capture.ops = [...oplog.ops]
+  return capture
+}
+
+function leftDominatesRight (left: Clock, right: Clock) {
+  const keys = new Set([...left.keys(), ...right.keys()])
+  for (const k of keys) {
+    const lv = left.get(k) || 0
+    const rv = right.get(k) || 0
+    if (lv < rv) return false
+  }
+  return true
 }
