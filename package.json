@@ -1,6 +1,6 @@
 {
   "name": "pauls-simulated-autobee",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "An in-memory simulated autobee for testing",
   "main": "dist/index.js",
   "type": "module",
