@@ -191,6 +191,23 @@ ava('single writer: get, createReadStream, put, del', async t => {
       }
     }
   }
+
+  const history1 = await db.getHistory('key0')
+  t.is(history1.length, 2)
+  t.is(history1[0].op, 'put')
+  t.is(history1[0].key, 'key0')
+  t.deepEqual(history1[0].value, {test: 0})
+  t.is(history1[1].op, 'del')
+  t.is(history1[1].key, 'key0')
+  t.falsy(history1[1].value)
+  const history2 = await db.sub('sub').getHistory('key0')
+  t.is(history2.length, 2)
+  t.is(history2[0].op, 'put')
+  t.is(history2[0].key, 'sub/key0')
+  t.deepEqual(history2[0].value, {test: 0})
+  t.is(history2[1].op, 'del')
+  t.is(history2[1].key, 'sub/key0')
+  t.falsy(history2[1].value)
 })
 
 function concatStream (s: any): Promise<any[]> {

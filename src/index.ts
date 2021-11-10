@@ -52,6 +52,7 @@ export class SimulatedAutobee {
   writers: SimulatedOplogIface[] = []
   private clock: Clock = new Map()
   private entries: Map<string, any> = new Map()
+  private history: Map<string, SimulatedOp[]> = new Map()
 
   get _genWritersClock () {
     const clock: Clock = new Map()
@@ -93,6 +94,10 @@ export class SimulatedAutobee {
             this.entries.delete(op.key)
           }
           this.length++
+
+          const history = this.history.get(op.key) || []
+          history.push(op)
+          this.history.set(op.key, history)
         }
       }
     }
@@ -113,6 +118,13 @@ export class SimulatedAutobee {
       key = `${opts.prefix}/${key}`
     }
     return Promise.resolve(this.entries.get(key))
+  }
+
+  getHistory (key: string, opts?: GetOpts): Promise<SimulatedOp[]> {
+    if (opts?.prefix) {
+      key = `${opts.prefix}/${key}`
+    }
+    return Promise.resolve(this.history.get(key) || [])
   }
 
   createReadStream (opts?: ReadStreamOpts): Readable {
@@ -192,6 +204,12 @@ export class SimulatedAutobeeSub {
     opts = opts || {}
     opts.prefix = this.prefix
     return this.db.get(key, opts)
+  }
+
+  getHistory (key: string, opts?: GetOpts) {
+    opts = opts || {}
+    opts.prefix = this.prefix
+    return this.db.getHistory(key, opts)
   }
 
   createReadStream (opts?: ReadStreamOpts) {
