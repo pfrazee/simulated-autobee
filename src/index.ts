@@ -2,11 +2,11 @@ import { Readable } from 'stream'
 import EventEmitter from 'events'
 import * as crypto from 'crypto'
 
-interface GetOpts {
+export interface GetOpts {
   prefix?: string
 }
 
-interface ReadStreamOpts {
+export interface ReadStreamOpts {
   prefix?: string
   gt?: string
   gte?: string
@@ -15,14 +15,14 @@ interface ReadStreamOpts {
   reverse?: boolean
 }
 
-interface WriteOpts {
+export interface WriteOpts {
   prefix?: string
   writer?: SimulatedOplogIface
 }
 
-type Clock = Map<string, number>
+export type Clock = Map<string, number>
 
-interface SimulatedOp {
+export interface SimulatedOp {
   seq: number
   clock: Clock
   op: 'put' | 'del'
@@ -30,7 +30,7 @@ interface SimulatedOp {
   value?: any
 }
 
-interface SimulatedEntry {
+export interface SimulatedEntry {
   seq: number
   key: string
   value: any
@@ -38,7 +38,7 @@ interface SimulatedEntry {
   conflicts: SimulatedEntry[]
 }
 
-interface SimulatedOplogIface extends EventEmitter {
+export interface SimulatedOplogIface extends EventEmitter {
   key: Buffer
   keyStr: string
   length: number
